@@ -1,0 +1,51 @@
+// ... (mantenha o topo do HTML e o CSS igual ao anterior)
+
+const BIN_ID = "69acff2dae596e708f6baabd"; // Seu ID da imagem
+const API_KEY = "SUA_API_KEY_AQUI"; // Pegue em 'API Keys' no JSONBin
+const URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
+
+async function cadastrar() {
+    const nome = document.getElementById('nomeUsuario').value;
+    if (!nome) return alert("Digite um nome!");
+    
+    document.getElementById('status').innerText = "Analisando rosto...";
+    const detec = await faceapi.detectSingleFace('video', new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+    
+    if (!detec) return alert("Rosto não detectado!");
+
+    // 1. Baixa a lista atual (record agora contém { users: [] })
+    const res = await fetch(URL, { headers: { "X-Master-Key": API_KEY } });
+    const base = await res.json();
+    
+    // Ajuste para acessar a chave 'users'
+    let lista = (base.record && base.record.users) ? base.record.users : [];
+
+    // 2. Adiciona o novo vetor
+    lista.push({ nome, descriptor: Array.from(detec.descriptor) });
+
+    // 3. Salva de volta mantendo a estrutura {"users": [...]}
+    await fetch(URL, {
+        method: 'PUT',
+        headers: { "Content-Type": "application/json", "X-Master-Key": API_KEY },
+        body: JSON.stringify({ users: lista })
+    });
+    
+    alert("Cadastrado com sucesso no banco central!");
+    document.getElementById('status').innerText = "Pronto";
+}
+
+async function reconhecer() {
+    // ... (mesmo início da função anterior)
+    
+    const res = await fetch(URL, { headers: { "X-Master-Key": API_KEY } });
+    const base = await res.json();
+    const lista = base.record.users; // Ajuste aqui também
+
+    if (!lista || lista.length === 0) return alert("Ninguém cadastrado no banco ainda!");
+
+    const labeledDescriptors = lista.map(u => new faceapi.LabeledFaceDescriptors(u.nome, [new Float32Array(u.descriptor)]));
+    const faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.6);
+    const match = faceMatcher.findBestMatch(detecAtual.descriptor);
+
+    alert("Reconhecido como: " + match.toString());
+}
