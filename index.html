@@ -3,112 +3,125 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tower FaceID v1.5</title>
+    <meta http-equiv="cache-control" content="no-cache, no-store, must-revalidate">
+    <title>Tower FaceID v1.7</title>
     <script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; text-align: center; background: #121212; color: white; padding: 20px; }
-        video { border: 3px solid #007bff; border-radius: 15px; width: 100%; max-width: 400px; background: #000; transform: scaleX(-1); }
+        body { font-family: 'Segoe UI', sans-serif; text-align: center; background: #121212; color: white; padding: 20px; margin: 0; }
+        video { border: 3px solid #28a745; border-radius: 15px; width: 100%; max-width: 400px; background: #000; transform: scaleX(-1); }
         .container { display: flex; flex-direction: column; align-items: center; gap: 12px; margin-top: 15px; }
         input, button { padding: 15px; border-radius: 8px; width: 85%; max-width: 320px; font-size: 16px; border: none; }
-        .btn-cadastrar { background: #28a745; color: white; font-weight: bold; }
-        .btn-reconhecer { background: #007bff; color: white; font-weight: bold; }
+        .btn-cadastrar { background: #28a745; color: white; font-weight: bold; cursor: pointer; }
+        .btn-reconhecer { background: #007bff; color: white; font-weight: bold; cursor: pointer; }
         button:disabled { background: #444; opacity: 0.6; }
-        #status { margin-top: 15px; color: #ffc107; font-weight: bold; font-size: 14px; }
+        #status { margin-top: 15px; color: #ffc107; font-weight: bold; font-size: 14px; min-height: 20px; }
+        .footer { font-size: 10px; color: #333; margin-top: 30px; }
     </style>
 </head>
 <body>
-    <h2>Tower FaceID - v1.5</h2>
+    <h2>Tower FaceID - v1.7</h2>
     <video id="video" autoplay muted playsinline></video>
     
     <div class="container">
         <input type="text" id="nomeUsuario" placeholder="Nome para cadastro">
-        <button id="btnCad" class="btn-cadastrar" onclick="cadastrar()" disabled>Cadastrar Rosto v1.5</button>
+        <button id="btnCad" class="btn-cadastrar" onclick="cadastrar()" disabled>Cadastrar Rosto v1.7</button>
         <button id="btnRec" class="btn-reconhecer" onclick="reconhecer()" disabled>Quem é você?</button>
     </div>
     
-    <p id="status">Verificando Hardware...</p>
+    <p id="status">Iniciando Hardware...</p>
+    <div class="footer">Tower Gráfica | Build: 2026.03.08</div>
 
     <script>
         const BIN_ID = "69acff2dae596e708f6baabd"; 
-        const API_KEY = "SUA_API_KEY_AQUI"; 
+        const API_KEY = "$2a$10$PzIq1jVCP059YSkMru60EuiSYQ94hpypE7Itt2gk4RGxCs8siPZUm"; 
         const URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
 
         async function iniciar() {
             const status = document.getElementById('status');
             
-            // 1. Teste de Câmera
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ video: true });
                 document.getElementById('video').srcObject = stream;
             } catch (e) {
-                status.innerText = "ERRO: Sem acesso à câmera (Use HTTPS).";
+                status.innerText = "ERRO: Câmera não detectada ou Sem HTTPS.";
                 return;
             }
 
-            // 2. Carregamento de Modelos com Fallback
             try {
-                status.innerText = "Sincronizando IA (Aguarde)...";
+                status.innerText = "Carregando IA...";
                 const MODEL_URL = 'https://raw.githubusercontent.com/vladmandic/face-api/master/model';
                 
-                await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
-                await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
-                await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+                await Promise.all([
+                    faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+                    faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+                    faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
+                ]);
                 
-                status.innerText = "IA Pronta. Validando Cloud...";
-            } catch (e) {
-                status.innerText = "ERRO: Falha ao baixar modelos de IA.";
-                return;
-            }
-
-            // 3. Teste de API Cloud
-            try {
-                const res = await fetch(URL, { headers: { "X-Master-Key": API_KEY } });
+                status.innerText = "IA Pronta. Autenticando Cloud...";
+                
+                // Validação de Cloud v1.7
+                const res = await fetch(URL, { 
+                    headers: { "X-Master-Key": API_KEY, "Cache-Control": "no-cache" } 
+                });
+                
                 if (res.ok) {
-                    status.innerText = "Sistema Online - v1.5";
+                    status.innerText = "Sistema Online - v1.7";
                     document.getElementById('btnCad').disabled = false;
                     document.getElementById('btnRec').disabled = false;
                 } else {
-                    status.innerText = `ERRO Cloud: ${res.status}`;
+                    const errorMsg = await res.json();
+                    status.innerText = `Erro Cloud ${res.status}: ${errorMsg.message || 'Chave Inválida'}`;
                 }
             } catch (e) {
-                status.innerText = "ERRO: Bloqueio de Rede/DNS na Cloud.";
+                status.innerText = "Erro de Rede (Verifique o 4G ou DNS).";
             }
+        }
+
+        async function obterLista() {
+            const res = await fetch(URL, { 
+                headers: { "X-Master-Key": API_KEY, "Cache-Control": "no-cache" } 
+            });
+            const data = await res.json();
+            return data.record.users || [];
         }
 
         async function cadastrar() {
             const nome = document.getElementById('nomeUsuario').value;
             if (!nome) return alert("Digite um nome!");
             
-            document.getElementById('status').innerText = "Processando face...";
+            document.getElementById('status').innerText = "Processando Face...";
             const detec = await faceapi.detectSingleFace('video', new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
             
-            if (!detec) return alert("Não detectado. Aproxime o rosto.");
+            if (!detec) return alert("Rosto não detectado.");
 
             try {
-                const res = await fetch(URL, { headers: { "X-Master-Key": API_KEY } });
-                const data = await res.json();
-                let lista = data.record.users || [];
-
+                let lista = await obterLista();
                 lista.push({ nome, descriptor: Array.from(detec.descriptor) });
 
-                await fetch(URL, {
+                const update = await fetch(URL, {
                     method: 'PUT',
                     headers: { "Content-Type": "application/json", "X-Master-Key": API_KEY },
                     body: JSON.stringify({ users: lista })
                 });
-                alert("Cadastrado!");
+
+                if (update.ok) {
+                    alert("Sucesso no Cadastro!");
+                    document.getElementById('nomeUsuario').value = "";
+                } else {
+                    alert("Erro ao gravar: " + update.status);
+                }
                 document.getElementById('status').innerText = "Pronto";
-            } catch (e) { alert("Erro no envio."); }
+            } catch (e) { alert("Erro de conexão ao salvar."); }
         }
 
         async function reconhecer() {
+            document.getElementById('status').innerText = "Analisando...";
             const detec = await faceapi.detectSingleFace('video', new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
             if (!detec) return alert("Rosto não detectado.");
 
             try {
-                const res = await fetch(URL, { headers: { "X-Master-Key": API_KEY } });
-                const data = await res.json();
-                const lista = data.record.users || [];
+                const lista = await obterLista();
+                if (lista.length === 0) return alert("Ninguém cadastrado no banco.");
 
                 const labeled = lista.map(u => new faceapi.LabeledFaceDescriptors(u.nome, [new Float32Array(u.descriptor)]));
                 const matcher = new faceapi.FaceMatcher(labeled, 0.6);
@@ -116,6 +129,7 @@
 
                 alert("Resultado: " + match.toString());
             } catch (e) { alert("Erro ao identificar."); }
+            document.getElementById('status').innerText = "Pronto";
         }
 
         iniciar();
