@@ -3,33 +3,28 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tower FaceID - Antiduplicidade</title>
+    <title>Tower FaceID - Final</title>
     <script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
     <style>
         body { font-family: sans-serif; text-align: center; background: #121212; color: white; padding: 20px; }
         video { border-radius: 15px; width: 100%; max-width: 400px; background: #000; }
-        .controls { margin-top: 20px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
-        input { padding: 12px; border-radius: 8px; width: 80%; max-width: 300px; }
-        button { padding: 15px; border-radius: 8px; cursor: pointer; font-weight: bold; width: 80%; max-width: 300px; }
+        input, button { padding: 15px; margin: 10px; border-radius: 8px; width: 80%; max-width: 300px; font-size: 16px; }
         .btn-cadastrar { background: #28a745; color: white; border: none; }
         .btn-reconhecer { background: #007bff; color: white; border: none; }
-        #status { color: #aaa; margin-top: 10px; }
     </style>
 </head>
 <body>
     <h2>Reconhecimento Facial Centralizado</h2>
     <video id="video" autoplay muted playsinline></video>
-    
-    <div class="controls">
-        <input type="text" id="nomeUsuario" placeholder="Nome para cadastro">
-        <button class="btn-cadastrar" onclick="cadastrar()">Cadastrar Rosto</button>
-        <button class="btn-reconhecer" onclick="reconhecer()">Quem é?</button>
-    </div>
-    <p id="status">Iniciando sistema...</p>
+    <br>
+    <input type="text" id="nomeUsuario" placeholder="Nome para cadastro">
+    <button class="btn-cadastrar" onclick="cadastrar()">Cadastrar Rosto</button>
+    <button class="btn-reconhecer" onclick="reconhecer()">Identificar</button>
+    <p id="status">Iniciando...</p>
 
     <script>
-        const BIN_ID = "69acff2dae596e708f6baabd"; //
-        const API_KEY = "SUA_API_KEY_AQUI"; // Certifique-se de usar a Master Key
+        const BIN_ID = "69acff2dae596e708f6baabd"; 
+        const API_KEY = "SUA_API_KEY_AQUI"; // Use sua Master Key
         const URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
 
         async function iniciar() {
@@ -37,7 +32,7 @@
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
                 video.srcObject = stream;
-            } catch (err) { alert("Erro na câmera: " + err); }
+            } catch (err) { alert("Erro câmera: " + err); }
 
             const MODEL_URL = 'https://raw.githubusercontent.com/vladmandic/face-api/master/model';
             await Promise.all([
@@ -48,66 +43,50 @@
             document.getElementById('status').innerText = "Sistema Online";
         }
 
+        async function obterLista() {
+            const res = await fetch(URL, { headers: { "X-Master-Key": API_KEY } });
+            const data = await res.json();
+            // Proteção contra o erro 'undefined reading users'
+            if (data.record && data.record.users) return data.record.users;
+            if (Array.isArray(data.record)) return data.record;
+            return [];
+        }
+
         async function cadastrar() {
             const nome = document.getElementById('nomeUsuario').value;
             if (!nome) return alert("Digite um nome!");
-            
-            document.getElementById('status').innerText = "Analisando...";
             const detec = await faceapi.detectSingleFace('video', new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
-            
             if (!detec) return alert("Rosto não detectado!");
 
-            try {
-                const res = await fetch(URL, { headers: { "X-Master-Key": API_KEY } });
-                const base = await res.json();
-                let lista = (base.record && base.record.users) ? base.record.users : [];
+            let lista = await obterLista();
 
-                // --- LÓGICA DE DEDUPLICAÇÃO CORRIGIDA ---
-                if (lista.length > 0) {
-                    const labeledDescriptors = lista.map(u => {
-                        // REIDRATAÇÃO: Converte o array comum de volta para Float32Array
-                        const descriptorFloat = new Float32Array(u.descriptor);
-                        return new faceapi.LabeledFaceDescriptors(u.nome, [descriptorFloat]);
-                    });
+            if (lista.length > 0) {
+                const labeled = lista.map(u => new faceapi.LabeledFaceDescriptors(u.nome, [new Float32Array(u.descriptor)]));
+                const matcher = new faceapi.FaceMatcher(labeled, 0.5);
+                const match = matcher.findBestMatch(detec.descriptor);
+                if (match.label !== 'unknown') return alert(`Já cadastrado como: ${match.label}`);
+            }
 
-                    // Threshold de 0.5 (quanto menor, mais difícil de enganar)
-                    const faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.5);
-                    const match = faceMatcher.findBestMatch(detec.descriptor);
-
-                    if (match.label !== 'unknown') {
-                        return alert(`Atenção: Este rosto já está cadastrado como "${match.label}".`);
-                    }
-                }
-                // --- FIM DA CORREÇÃO ---
-
-                lista.push({ nome, descriptor: Array.from(detec.descriptor) });
-
-                await fetch(URL, {
-                    method: 'PUT',
-                    headers: { "Content-Type": "application/json", "X-Master-Key": API_KEY },
-                    body: JSON.stringify({ users: lista })
-                });
-                
-                alert("Cadastrado com sucesso!");
-            } catch (e) { alert("Erro: " + e); }
-            document.getElementById('status').innerText = "Pronto";
+            lista.push({ nome, descriptor: Array.from(detec.descriptor) });
+            await fetch(URL, {
+                method: 'PUT',
+                headers: { "Content-Type": "application/json", "X-Master-Key": API_KEY },
+                body: JSON.stringify({ users: lista })
+            });
+            alert("Cadastrado com sucesso!");
         }
 
         async function reconhecer() {
-            const detecAtual = await faceapi.detectSingleFace('video', new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
-            if (!detecAtual) return alert("Rosto não detectado!");
+            const detec = await faceapi.detectSingleFace('video', new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+            if (!detec) return alert("Rosto não detectado!");
 
-            const res = await fetch(URL, { headers: { "X-Master-Key": API_KEY } });
-            const base = await res.json();
-            const lista = base.record.users;
+            let lista = await obterLista();
+            if (lista.length === 0) return alert("Banco vazio!");
 
-            if (!lista || lista.length === 0) return alert("Banco vazio!");
-
-            const labeledDescriptors = lista.map(u => new faceapi.LabeledFaceDescriptors(u.nome, [new Float32Array(u.descriptor)]));
-            const faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.6);
-            const match = faceMatcher.findBestMatch(detecAtual.descriptor);
-
-            alert("Resultado: " + match.toString());
+            const labeled = lista.map(u => new faceapi.LabeledFaceDescriptors(u.nome, [new Float32Array(u.descriptor)]));
+            const matcher = new faceapi.FaceMatcher(labeled, 0.6);
+            const match = matcher.findBestMatch(detec.descriptor);
+            alert("Identificado: " + match.toString());
         }
 
         iniciar();
