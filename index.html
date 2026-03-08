@@ -51,33 +51,54 @@
             document.getElementById('status').innerText = "Sistema Online e Sincronizado";
         }
 
-        async function cadastrar() {
-            const nome = document.getElementById('nomeUsuario').value;
-            if (!nome) return alert("Digite um nome!");
-            
-            document.getElementById('status').innerText = "Analisando face...";
-            const detec = await faceapi.detectSingleFace('video', new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
-            
-            if (!detec) return alert("Rosto não detectado. Tente melhor iluminação.");
+async function cadastrar() {
+    const nome = document.getElementById('nomeUsuario').value;
+    if (!nome) return alert("Digite um nome!");
+    
+    document.getElementById('status').innerText = "Analisando rosto...";
+    const detec = await faceapi.detectSingleFace('video', new faceapi.TinyFaceDetectorOptions())
+                               .withFaceLandmarks()
+                               .withFaceDescriptor();
+    
+    if (!detec) return alert("Rosto não detectado!");
 
-            try {
-                const res = await fetch(URL, { headers: { "X-Master-Key": API_KEY } });
-                const base = await res.json();
-                let lista = (base.record && base.record.users) ? base.record.users : [];
+    try {
+        // 1. Baixa a lista atual do banco central
+        const res = await fetch(URL, { headers: { "X-Master-Key": API_KEY } });
+        const base = await res.json();
+        let lista = (base.record && base.record.users) ? base.record.users : [];
 
-                lista.push({ nome, descriptor: Array.from(detec.descriptor) });
+        // 2. LÓGICA DE DEDUPLICAÇÃO:
+        // Verifica se o rosto atual já é muito parecido com algum rosto na lista
+        if (lista.length > 0) {
+            const labeledDescriptors = lista.map(u => 
+                new faceapi.LabeledFaceDescriptors(u.nome, [new Float32Array(u.descriptor)])
+            );
+            const faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.6); // 0.6 é o limite de similaridade
+            const match = faceMatcher.findBestMatch(detec.descriptor);
 
-                await fetch(URL, {
-                    method: 'PUT',
-                    headers: { "Content-Type": "application/json", "X-Master-Key": API_KEY },
-                    body: JSON.stringify({ users: lista })
-                });
-                
-                alert(`Sucesso! ${nome} foi salvo no banco central.`);
-            } catch (e) { alert("Erro na nuvem: " + e); }
-            document.getElementById('status').innerText = "Pronto";
+            // Se o sistema encontrar um rosto com distância menor que o threshold, bloqueia o cadastro
+            if (match.label !== 'unknown') {
+                return alert(`Este rosto já está cadastrado como: ${match.label}`);
+            }
         }
 
+        // 3. Se passou pela verificação, adiciona o novo vetor
+        lista.push({ nome, descriptor: Array.from(detec.descriptor) });
+
+        // 4. Salva de volta no banco
+        await fetch(URL, {
+            method: 'PUT',
+            headers: { "Content-Type": "application/json", "X-Master-Key": API_KEY },
+            body: JSON.stringify({ users: lista })
+        });
+        
+        alert(`Sucesso! ${nome} foi salvo no banco central.`);
+    } catch (e) { 
+        alert("Erro na nuvem: " + e); 
+    }
+    document.getElementById('status').innerText = "Pronto";
+}
         async function reconhecer() {
             document.getElementById('status').innerText = "Capturando imagem...";
             const detecAtual = await faceapi.detectSingleFace('video', new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
